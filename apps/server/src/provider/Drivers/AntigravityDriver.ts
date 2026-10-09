@@ -113,21 +113,25 @@ export const AntigravityDriver: ProviderDriver<AntigravitySettings, AntigravityD
       };
       const authConfigIssue = antigravityAuthConfigIssue(auth);
       const processEnvironment = mergeProviderInstanceEnvironment(environment);
-      // Read per use: a shared path change does not rebuild the instance.
-      const binaryPath = host.settings.get.pipe(
-        Effect.map((serverSettings) =>
-          resolveAntigravityBinaryPath(settings.binaryPath, serverSettings.antigravityBinaryPath),
-        ),
-        Effect.mapError(
-          (cause) =>
-            new ProviderSetupError({
-              instanceId,
-              operation: "resolve",
-              detail: "Could not read the shared Antigravity binary path.",
-              cause,
-            }),
-        ),
-      );
+      // Read per use: a shared path change does not rebuild the instance. An
+      // instance with its own path never depends on the shared settings read.
+      const instanceBinaryPath = resolveAntigravityBinaryPath(settings.binaryPath, undefined);
+      const binaryPath = instanceBinaryPath
+        ? Effect.succeed(instanceBinaryPath)
+        : host.settings.get.pipe(
+            Effect.map((serverSettings) =>
+              resolveAntigravityBinaryPath(undefined, serverSettings.antigravityBinaryPath),
+            ),
+            Effect.mapError(
+              (cause) =>
+                new ProviderSetupError({
+                  instanceId,
+                  operation: "resolve",
+                  detail: "Could not read the shared Antigravity binary path.",
+                  cause,
+                }),
+            ),
+          );
       const userHome = resolveAntigravityUserHome(yield* HostProcessPlatform, processEnvironment);
       const directories = yield* resolveAntigravityInstanceDirectories(
         host.paths.stateDir,

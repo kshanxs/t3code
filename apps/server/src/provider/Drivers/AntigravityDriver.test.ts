@@ -3,6 +3,7 @@ import { expect, it } from "@effect/vitest";
 import {
   ANTIGRAVITY_DEFAULT_MODEL,
   ProviderInstanceId,
+  ServerSettingsError,
   type AntigravitySettings,
 } from "@t3tools/contracts";
 import {
@@ -34,6 +35,7 @@ import * as ProviderEventLoggers from "@t3tools/provider-core/server/ProviderEve
 import * as McpProviderSessions from "@t3tools/provider-core/server/McpProviderSessions";
 import * as ModelManifest from "../ModelManifest.ts";
 import * as IdAllocator from "@t3tools/provider-core/server/IdAllocator";
+import * as ProviderHost from "@t3tools/provider-core/server/ProviderHost";
 import { AntigravityDriver } from "./AntigravityDriver.ts";
 import * as ProviderHostLive from "../ProviderHostLive.ts";
 import * as ServerSecretStore from "../../auth/ServerSecretStore.ts";
@@ -561,6 +563,25 @@ it.layer(layerTest)("AntigravityDriver", (it) => {
       expect(resolved).toContain("/own/agy");
       expect(resolved).not.toContain("/shared/agy");
     }).pipe(Effect.scoped),
+  );
+
+  it.effect("resolves an instance's own binary path when shared settings cannot be read", () =>
+    Effect.gen(function* () {
+      const h = yield* makeHarness({ enabled: true, config: { binaryPath: "/own/agy" } });
+      yield* h.instance.snapshot.refresh;
+      expect(yield* Queue.takeAll(h.resolutions)).toContain("/own/agy");
+    }).pipe(
+      Effect.scoped,
+      Effect.updateService(ProviderHost.ProviderHost, (host) => ({
+        ...host,
+        settings: {
+          ...host.settings,
+          get: Effect.fail(
+            new ServerSettingsError({ settingsPath: "settings.json", operation: "read-file" }),
+          ),
+        },
+      })),
+    ),
   );
 
   it.effect("uses a changed shared binary path on the next check without a rebuild", () =>
