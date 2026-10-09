@@ -17,6 +17,7 @@ import * as Fiber from "effect/Fiber";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as Path from "effect/Path";
+import * as Queue from "effect/Queue";
 import * as Schema from "effect/Schema";
 import * as TestClock from "effect/testing/TestClock";
 import * as ChildProcessSpawner from "effect/process/ChildProcessSpawner";
@@ -114,6 +115,7 @@ const makeHarness = Effect.fn("makeAntigravityDriverHarness")(function* (
   const signedOut = yield* makeExecutable("runtime signed-out", true);
   const controls = { selected: first, failResolution: false, beforeAcquire: Effect.void };
   const acquisitions: Array<{ binaryPath: string | undefined; path: string | undefined }> = [];
+  const resolutions = yield* Queue.unbounded<string | undefined>();
   const releases: Array<string | null> = [];
   const launches: Array<{
     command: string;
@@ -131,8 +133,9 @@ const makeHarness = Effect.fn("makeAntigravityDriverHarness")(function* (
 
   const layerInstallation = Layer.mock(AntigravityInstallation.AntigravityInstallation)({
     managedDirectory: root,
-    resolve: () =>
+    resolve: (binaryPath) =>
       Effect.gen(function* () {
+        yield* Queue.offer(resolutions, binaryPath);
         if (controls.failResolution) {
           return yield* new AntigravityInstallation.AntigravityInstallationError({
             operation: "resolve",
@@ -239,6 +242,7 @@ const makeHarness = Effect.fn("makeAntigravityDriverHarness")(function* (
     signedOut,
     controls,
     acquisitions,
+    resolutions,
     releases,
     launches,
     readRequests,
@@ -535,6 +539,43 @@ it.layer(layerTest)("AntigravityDriver", (it) => {
         expect(yield* fs.exists(directories.runtimeTemp)).toBe(false);
         expect(yield* fs.exists(legacyRoot)).toBe(false);
       }).pipe(Effect.scoped),
+  );
+
+  it.effect("runs the shared binary path unless the instance sets its own", () =>
+    Effect.gen(function* () {
+      const serverSettings = yield* ServerSettings.ServerSettingsService;
+      yield* Effect.addFinalizer(() =>
+        serverSettings.updateSettings({ antigravityBinaryPath: "" }).pipe(Effect.ignore),
+      );
+      yield* serverSettings.updateSettings({ antigravityBinaryPath: "/shared/agy" });
+
+      const inheriting = yield* makeHarness({ enabled: true });
+      yield* inheriting.instance.snapshot.refresh;
+      expect(yield* Queue.takeAll(inheriting.resolutions)).toContain("/shared/agy");
+
+      const overriding = yield* makeHarness({ enabled: true, config: { binaryPath: "/own/agy" } });
+      yield* overriding.instance.snapshot.refresh;
+      const resolved = yield* Queue.takeAll(overriding.resolutions);
+      expect(resolved).toContain("/own/agy");
+      expect(resolved).not.toContain("/shared/agy");
+    }).pipe(Effect.scoped),
+  );
+
+  it.effect("uses a changed shared binary path on the next check without a rebuild", () =>
+    Effect.gen(function* () {
+      const serverSettings = yield* ServerSettings.ServerSettingsService;
+      yield* Effect.addFinalizer(() =>
+        serverSettings.updateSettings({ antigravityBinaryPath: "" }).pipe(Effect.ignore),
+      );
+      const h = yield* makeHarness({ enabled: true });
+      yield* h.instance.snapshot.refresh;
+      yield* Queue.takeAll(h.resolutions);
+
+      yield* serverSettings.updateSettings({ antigravityBinaryPath: "/shared/agy" });
+      yield* h.instance.snapshot.refresh;
+
+      expect(yield* Queue.takeAll(h.resolutions)).toEqual(["/shared/agy"]);
+    }).pipe(Effect.scoped),
   );
 
   it.effect("probes through installation resolution without launching a process", () =>
