@@ -766,7 +766,18 @@ export function EnvironmentProviderSettings({
     if (result._tag !== "Success") return;
     for (const row of rows) {
       if (row.driver !== "antigravity") continue;
-      await refreshServerProviders({ environmentId, input: { instanceId: row.instanceId } });
+      const refreshed = await refreshServerProviders({
+        environmentId,
+        input: { instanceId: row.instanceId },
+      });
+      if (refreshed._tag === "Failure" && !isAtomCommandInterrupted(refreshed)) {
+        console.warn("Failed to refresh provider", {
+          operation: "refresh-provider",
+          environmentId,
+          instanceId: row.instanceId,
+          ...safeErrorLogAttributes(squashAtomCommandFailure(refreshed)),
+        });
+      }
     }
   };
   const visibleDriverKinds = new Set<ProviderDriverKind>(
