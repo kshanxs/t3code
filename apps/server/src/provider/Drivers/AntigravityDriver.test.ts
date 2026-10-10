@@ -6,12 +6,7 @@ import {
   ServerSettingsError,
   type AntigravitySettings,
 } from "@t3tools/contracts";
-import {
-  HostProcessEnvironment,
-  HostProcessExecutablePath,
-  HostProcessIsExecutable,
-  HostProcessPlatform,
-} from "@t3tools/shared/hostProcess";
+import * as HostProcess from "@t3tools/shared/HostProcess";
 import * as Effect from "effect/Effect";
 import * as Deferred from "effect/Deferred";
 import * as Fiber from "effect/Fiber";
@@ -40,7 +35,7 @@ import { AntigravityDriver } from "./AntigravityDriver.ts";
 import * as ProviderHostLive from "../ProviderHostLive.ts";
 import * as ServerSecretStore from "../../auth/ServerSecretStore.ts";
 
-const hostPlatform = HostProcessPlatform.defaultValue();
+const hostPlatform = HostProcess.Platform.defaultValue();
 const windowsHost = hostPlatform === "win32";
 const decodeRequest = Schema.decodeEffect(
   Schema.fromJsonString(
@@ -68,8 +63,8 @@ const makeHarness = Effect.fn("makeAntigravityDriverHarness")(function* (
   const path = yield* Path.Path;
   const config = yield* ServerConfig.ServerConfig;
   const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
-  const nodePath = yield* HostProcessExecutablePath;
-  const baseEnv = yield* HostProcessEnvironment;
+  const nodePath = yield* HostProcess.ExecutablePath;
+  const baseEnv = yield* HostProcess.Environment;
   const root = yield* fs.makeTempDirectoryScoped({ prefix: "t3-antigravity-driver-" });
   const instanceId = ProviderInstanceId.make(path.basename(root));
   const mockAgentPath = yield* path.fromFileUrl(
@@ -289,8 +284,8 @@ it.layer(layerTest)("AntigravityDriver", (it) => {
         expect(h.launches).toEqual([]);
       }).pipe(
         Effect.scoped,
-        Effect.provideService(HostProcessIsExecutable, true),
-        Effect.provideService(HostProcessEnvironment, { PATH: "" }),
+        Effect.provideService(HostProcess.IsExecutable, true),
+        Effect.provideService(HostProcess.Environment, { PATH: "" }),
       ),
   );
 

@@ -6,7 +6,7 @@ import {
   ProviderSetupError,
   resolveAntigravityBinaryPath,
 } from "@t3tools/contracts";
-import { HostProcessPlatform } from "@t3tools/shared/hostProcess";
+import * as HostProcess from "@t3tools/shared/HostProcess";
 import { resolveSelfInvocation } from "@t3tools/shared/nodeRuntime";
 import {
   NodeRuntimeUnavailableError,
@@ -31,6 +31,7 @@ import {
 } from "../../textGeneration/AntigravityTextGeneration.ts";
 import { makeAntigravityAuth, type AntigravityAuth } from "../AntigravityAuth.ts";
 import * as AntigravityInstallation from "../AntigravityInstallation.ts";
+import * as AntigravityUsage from "./AntigravityUsage.ts";
 import {
   antigravityAuthConfigIssue,
   antigravityAuthLabel,
@@ -85,11 +86,16 @@ export type AntigravityDriverEnv =
   | ProviderEventLoggers.ProviderEventLoggers;
 
 /** Each instance owns its Google profile. Executable releases are shared by the environment. */
-export const AntigravityDriver: ProviderDriver<AntigravitySettings, AntigravityDriverEnv> = {
+export const AntigravityDriver: ProviderDriver<
+  AntigravitySettings,
+  AntigravityDriverEnv,
+  AntigravityUsage.AntigravityUsage
+> = {
   driverKind: DRIVER,
   metadata: { displayName: "Antigravity", supportsMultipleInstances: true },
   configSchema: AntigravitySettings,
   defaultConfig: () => decodeSettings({}),
+  usage: AntigravityUsage.antigravityUsageReader,
   create: ({ instanceId, displayName, accentColor, environment, enabled, config }) =>
     Effect.gen(function* () {
       const crypto = yield* Crypto.Crypto;
@@ -112,7 +118,7 @@ export const AntigravityDriver: ProviderDriver<AntigravitySettings, AntigravityD
         gcpLocation: settings.gcpLocation,
       };
       const authConfigIssue = antigravityAuthConfigIssue(auth);
-      const processEnvironment = mergeProviderInstanceEnvironment(environment);
+      const processEnvironment = yield* mergeProviderInstanceEnvironment(environment);
       // Read per use: a shared path change does not rebuild the instance. An
       // instance with its own path never depends on the shared settings read.
       const instanceBinaryPath = resolveAntigravityBinaryPath(settings.binaryPath, undefined);
@@ -132,7 +138,11 @@ export const AntigravityDriver: ProviderDriver<AntigravitySettings, AntigravityD
                 }),
             ),
           );
-      const userHome = resolveAntigravityUserHome(yield* HostProcessPlatform, processEnvironment);
+      const userHome = resolveAntigravityUserHome(
+        yield* HostProcess.Platform,
+        processEnvironment,
+        yield* HostProcess.HomeDirectory,
+      );
       const directories = yield* resolveAntigravityInstanceDirectories(
         host.paths.stateDir,
         instanceId,
